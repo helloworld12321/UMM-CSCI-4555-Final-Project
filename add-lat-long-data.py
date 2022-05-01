@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 """
-Fill in latitude/longitude data based on place names
+Fill in latitude/longitude data based on place names.
+
 Joe Walbran and Natasha Zebrev
+
+Usage: ./add-lat-long-data.py input_csv_file >output_csv_file
 """
 
 import csv
