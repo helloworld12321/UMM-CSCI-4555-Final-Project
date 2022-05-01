@@ -1,0 +1,143 @@
+---
+title: "Neural Network to Generate Song Genres"
+author: "Joe Walbran and Natasha Zebrev"
+date: "4/13/2022"
+output: pdf_document
+---
+
+Likely useful features: latitude/longitude; tempo; key signature; time signature; year; duration
+
+## Read in and pre-process dataframes.
+```{r}
+library(keras)
+library(tfdatasets)
+library(dplyr)
+library(ggplot2)
+
+
+# Loading a csv file
+songs <- read.csv("SongsWithGenres.csv")
+
+
+# Only look at rows that are electronic music or folk music.
+GENRES <- c('Electronic', 'Folk')
+
+# We only care about predicting if a song is electronic or not.
+LABELS <- c('Electronic')
+
+# We'll use Year and Tempo as inputs to the neural network.
+FEATURES <- c('Year', 'Tempo')
+
+# Ignore rows except electronic and folk.
+songs <- filter_at(songs, vars(all_of(GENRES)), any_vars(. != 0))
+# Ignore rows with null features.
+songs <- filter_at(songs, vars(all_of(FEATURES)), all_vars(. != 0))
+
+
+## Make sure there are the same amount of electronic and non-electronic songs
+## in the dataset.
+
+electronicSongs <- filter_at(songs, vars(all_of(c('Electronic'))), any_vars(. != 0))
+nonElectronicSongs <- filter_at(songs, vars(all_of(c('Electronic'))), any_vars(. == 0))
+
+difference <- nrow(electronicSongs) - nrow(nonElectronicSongs)
+songsToDuplicate <- nonElectronicSongs[sample(nrow(nonElectronicSongs), difference, replace=TRUE),]
+
+# Shake the duplicated data
+songsToDuplicate$Year <- songsToDuplicate$Year + sample(c(-2, -1, 1, 2), 1)
+songsToDuplicate$Tempo <- songsToDuplicate$Tempo + sample(c(-2, -1, 1, 2), 1)
+
+songs <- rbind(songs, songsToDuplicate)
+row.names(songs) <- 1:nrow(songs)
+
+
+## Rescale some of the data to make it easier for the neural network to
+## understand.
+
+# Translate the "Year" feature so that the mean year is 0.
+songs$Year = songs$Year - mean(songs$Year)
+
+# Translate the "Tempo" feature so that the mean tempo is 0.
+songs$Tempo = songs$Tempo - mean(songs$Tempo)
+
+summary(songs)
+```
+
+## Split the data into training and testing.
+```{r}
+# Setting a pre-chosen seed to make the results more repeatable.
+set.seed(1234)
+
+sample_size <- floor(nrow(songs) * 0.85)
+
+picked <- sample(seq_len(nrow(songs)), size = sample_size)
+training <- songs[picked,]
+testing <- songs[-picked,]
+
+trainingInputs <- training[FEATURES]
+testingInputs <- testing[FEATURES]
+
+trainingGenres <- training[LABELS]
+testingGenres <- testing[LABELS]
+```
+
+## Train a neural network on the song data.
+```{r}
+model = keras_model_sequential() %>%
+  layer_dense(units = 64, activation = "relu",input_shape = ncol(trainingInputs)) %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = ncol(trainingGenres), regularizer_l2(), activation = "sigmoid")
+
+
+model %>% compile(
+  loss = "mean_squared_error",
+  optimizer = "adam", #optimizer_rmsprop(),
+  metrics = "accuracy"
+)
+
+# Need to convert the dataframes to matrices.
+xTr <- as.matrix(trainingInputs)
+xTest <- as.matrix(testingInputs)
+yTr <- as.matrix(trainingGenres)
+yTest <- as.matrix(testingGenres)
+
+model %>%
+  fit(
+    x = xTr,
+    y = yTr,
+    epochs = 75
+  )
+```
+
+## Evaluate the neural network.
+```{r}
+model %>% evaluate(xTest, yTest)
+
+# Use the model to predict whether the songs in the testing set are electronic
+# or not.
+result <- model %>% predict(xTest)
+
+result
+summary(result)
+
+# This line categorize the predictions as either:
+# 0: True negatives
+# 1: False positives
+# 2: False negatives
+# 3: True positives.
+#
+# We take the mean of the predicted outputs. Any prediction above the mean, we
+# take to mean "yes, this song is electronic". Any prediction below the mean,
+# we take to mean "no, this song is not electronic".
+matches <- (ifelse(result[,1] > mean(result[,1]), 1, 0) + 2 * yTest[,1]) %>%
+  as.data.frame %>%
+  table %>%
+  as.data.frame
+
+# Show the predictions as a pie chart.
+ggplot(matches, aes(x="", y=matches$Freq, fill=c('true negative', 'false positive', 'false negative', 'true positive'))) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0)
+```

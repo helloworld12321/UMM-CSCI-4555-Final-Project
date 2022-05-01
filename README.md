@@ -1,6 +1,6 @@
 # UMM CSCI 4555 Final Project
 
-This repository analyzes data from the Million Song Dataset project.
+This repository analyzes data from the [Million Song Dataset](http://millionsongdataset.com) project.
 
 The raw data from this project isn't included here, but you can get it at the
 following links:
